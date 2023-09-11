@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { Checkbox, Panel, DefaultButton, TextField, SpinButton, Dropdown, IDropdownOption } from "@fluentui/react";
-import { SparkleFilled } from "@fluentui/react-icons";
+import { ReceiptSearchFilled } from "@fluentui/react-icons";
 import readNDJSONStream from "ndjson-readablestream";
 
 import styles from "./Chat.module.css";
@@ -58,7 +58,7 @@ const Chat = () => {
                     retrievalMode: retrievalMode,
                     semanticRanker: useSemanticRanker,
                     semanticCaptions: useSemanticCaptions,
-                    suggestFollowupQuestions: useSuggestFollowupQuestions,
+                    suggestFollowupQuestions: useSuggestFollowupQuestions
                 }
             };
 
@@ -67,14 +67,14 @@ const Chat = () => {
                 throw Error("No response body");
             }
             if (shouldStream) {
-                let answer: string = '';
+                let answer: string = "";
                 let askResponse: AskResponse = {} as AskResponse;
                 for await (const event of readNDJSONStream(response.body)) {
                     if (event["data_points"]) {
                         askResponse = event;
                     } else if (event["choices"] && event["choices"][0]["delta"]["content"]) {
                         answer += event["choices"][0]["delta"]["content"];
-                        let latestResponse: AskResponse = {...askResponse, answer: answer};
+                        let latestResponse: AskResponse = { ...askResponse, answer: answer };
                         setIsLoading(false);
                         setAnswers([...answers, [question, latestResponse]]);
                     }
