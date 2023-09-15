@@ -385,7 +385,18 @@ def read_files(path_pattern: str, use_vectors: bool, vectors_batch_support: bool
             remove_from_index(filename)
         else:
             if os.path.isdir(filename):
+                print(f"** In directory loop args.category = {args.category}")
+
+                if ((args.category is None or args.category == "") and args.category != filename):
+                    args.category = os.path.basename(filename)
+                    print(f"** In directory loop args.category = {args.category}")
+
                 read_files(filename + "/*", use_vectors, vectors_batch_support)
+
+                if (args.category == filename):
+                    args.category = ""
+                    print(f"** AFTER read_files loop set category to null or empty string")
+
                 continue
             try:
                 if not args.skipblobs:
@@ -394,7 +405,9 @@ def read_files(path_pattern: str, use_vectors: bool, vectors_batch_support: bool
                 sections = create_sections(os.path.basename(filename), page_map, use_vectors and not vectors_batch_support, embedding_deployment)
                 if use_vectors and vectors_batch_support:
                     sections = update_embeddings_in_batch(sections)
+                print(f"** BEFORE index_section args.category = {args.category}")
                 index_sections(os.path.basename(filename), sections)
+                print(f"** AFTER index_section args.category = {args.category}")
             except Exception as e:
                 print(f"\tGot an error while reading {filename} -> {e} --> skipping file")
 

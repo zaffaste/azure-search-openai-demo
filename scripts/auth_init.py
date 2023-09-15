@@ -30,7 +30,7 @@ def create_application(credential):
         "https://graph.microsoft.com/v1.0/applications",
         headers=get_auth_headers(credential),
         json={
-            "displayName": "WebApp",
+            "displayName": "Reti OpenAI WebApp",
             "signInAudience": "AzureADandPersonalMicrosoftAccount",
             "web": {
                 "redirectUris": ["http://localhost:5000/.auth/login/aad/callback"],
