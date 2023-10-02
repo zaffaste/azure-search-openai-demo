@@ -143,8 +143,8 @@ module backend 'core/host/appservice.bicep' = {
     appCommandLine: 'python3 -m gunicorn main:app'
     scmDoBuildDuringDeployment: true
     managedIdentity: true
-    authClientId: useAuthentication ? authClientId : ''
-    authClientSecret: useAuthentication ? authClientSecret : ''
+    // authClientId: useAuthentication ? authClientId : ''
+    // authClientSecret: useAuthentication ? authClientSecret : ''
     authIssuerUri: useAuthentication ? '${environment().authentication.loginEndpoint}${tenant().tenantId}/v2.0' : ''
     appSettings: {
       AZURE_STORAGE_ACCOUNT: storage.outputs.name
