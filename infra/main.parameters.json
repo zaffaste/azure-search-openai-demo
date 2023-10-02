@@ -74,11 +74,14 @@
     "useAuthentication": {
       "value": "${AZURE_USE_AUTHENTICATION=false}"
     },
-    "authClientId": {
-      "value": "${AZURE_AUTH_CLIENT_ID}"
+    "serverAppId": {
+      "value": "${AZURE_SERVER_APP_ID}"
     },
-    "authClientSecret": {
-      "value": "${AZURE_AUTH_CLIENT_SECRET}"
+    "serverAppSecret": {
+      "value": "${AZURE_SERVER_APP_SECRET}"
+    },
+    "clientAppId": {
+      "value": "${AZURE_CLIENT_APP_ID}"
     }
   }
 }

@@ -5,6 +5,10 @@ import reti from "../../assets/logo_Reti.png";
 
 import styles from "./Layout.module.css";
 
+import { useLogin } from "../../authConfig"
+
+import { LoginButton } from "../../components/LoginButton"
+
 const Layout = () => {
     return (
         <div className={styles.layout}>
@@ -40,6 +44,7 @@ const Layout = () => {
                         </ul>
                     </nav>
                     <h4 className={styles.headerRightText}>Azure OpenAI + Cognitive Search</h4>
+                    {useLogin && <LoginButton/>}
                 </div>
             </header>
 

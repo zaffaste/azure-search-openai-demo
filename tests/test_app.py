@@ -1,4 +1,6 @@
 import json
+import os
+from unittest import mock
 
 import pytest
 import quart.testing.app
@@ -8,12 +10,12 @@ import app
 
 @pytest.mark.asyncio
 async def test_missing_env_vars():
-    quart_app = app.create_app()
+    with mock.patch.dict(os.environ, clear=True):
+        quart_app = app.create_app()
 
-    with pytest.raises(quart.testing.app.LifespanError) as exc_info:
-        async with quart_app.test_app() as test_app:
-            test_app.test_client()
-        assert str(exc_info.value) == "Lifespan failure in startup. ''AZURE_OPENAI_EMB_DEPLOYMENT''"
+        with pytest.raises(quart.testing.app.LifespanError, match="Error during startup 'AZURE_STORAGE_ACCOUNT'"):
+            async with quart_app.test_app() as test_app:
+                test_app.test_client()
 
 
 @pytest.mark.asyncio
@@ -47,6 +49,31 @@ async def test_ask_rtr_text(client, snapshot):
         },
     )
     assert response.status_code == 200
+    result = await response.get_json()
+    snapshot.assert_match(json.dumps(result, indent=4), "result.json")
+
+
+@pytest.mark.asyncio
+async def test_ask_rtr_text_filter(auth_client, snapshot):
+    response = await auth_client.post(
+        "/ask",
+        headers={"Authorization": "Bearer MockToken"},
+        json={
+            "approach": "rtr",
+            "question": "What is the capital of France?",
+            "overrides": {
+                "retrieval_mode": "text",
+                "use_oid_security_filter": True,
+                "use_groups_security_filter": True,
+                "exclude_category": "excluded",
+            },
+        },
+    )
+    assert response.status_code == 200
+    assert (
+        auth_client.config[app.CONFIG_SEARCH_CLIENT].filter
+        == "category ne 'excluded' and (oids/any(g:search.in(g, 'OID_X')) or groups/any(g:search.in(g, 'GROUP_Y, GROUP_Z')))"
+    )
     result = await response.get_json()
     snapshot.assert_match(json.dumps(result, indent=4), "result.json")
 
@@ -121,6 +148,31 @@ async def test_chat_text(client, snapshot):
         },
     )
     assert response.status_code == 200
+    result = await response.get_json()
+    snapshot.assert_match(json.dumps(result, indent=4), "result.json")
+
+
+@pytest.mark.asyncio
+async def test_chat_text_filter(auth_client, snapshot):
+    response = await auth_client.post(
+        "/chat",
+        headers={"Authorization": "Bearer MockToken"},
+        json={
+            "approach": "rrr",
+            "history": [{"user": "What is the capital of France?"}],
+            "overrides": {
+                "retrieval_mode": "text",
+                "use_oid_security_filter": True,
+                "use_groups_security_filter": True,
+                "exclude_category": "excluded",
+            },
+        },
+    )
+    assert response.status_code == 200
+    assert (
+        auth_client.config[app.CONFIG_SEARCH_CLIENT].filter
+        == "category ne 'excluded' and (oids/any(g:search.in(g, 'OID_X')) or groups/any(g:search.in(g, 'GROUP_Y, GROUP_Z')))"
+    )
     result = await response.get_json()
     snapshot.assert_match(json.dumps(result, indent=4), "result.json")
 
@@ -240,6 +292,31 @@ async def test_chat_stream_text(client, snapshot):
         },
     )
     assert response.status_code == 200
+    result = await response.get_data()
+    snapshot.assert_match(result, "result.jsonlines")
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_text_filter(auth_client, snapshot):
+    response = await auth_client.post(
+        "/chat_stream",
+        headers={"Authorization": "Bearer MockToken"},
+        json={
+            "approach": "rrr",
+            "history": [{"user": "What is the capital of France?"}],
+            "overrides": {
+                "retrieval_mode": "text",
+                "use_oid_security_filter": True,
+                "use_groups_security_filter": True,
+                "exclude_category": "excluded",
+            },
+        },
+    )
+    assert response.status_code == 200
+    assert (
+        auth_client.config[app.CONFIG_SEARCH_CLIENT].filter
+        == "category ne 'excluded' and (oids/any(g:search.in(g, 'OID_X')) or groups/any(g:search.in(g, 'GROUP_Y, GROUP_Z')))"
+    )
     result = await response.get_data()
     snapshot.assert_match(result, "result.jsonlines")
 
