@@ -4,12 +4,12 @@ import openai
 from azure.search.documents.aio import SearchClient
 from azure.search.documents.models import QueryType
 
-from approaches.approach import AskApproach
+from approaches.approach import Approach
 from core.messagebuilder import MessageBuilder
 from text import nonewlines
 
 
-class RetrieveThenReadApproach(AskApproach):
+class RetrieveThenReadApproach(Approach):
     """
     Simple retrieve-then-read implementation, using the Cognitive Search and OpenAI APIs directly. It first retrieves
     top documents from search, then constructs a prompt with them, and then uses OpenAI to generate an completion
@@ -131,9 +131,10 @@ info4.pdf: In-network institutions include Overlake, Swedish and others in the r
             n=1,
         )
 
-        return {
+        extra_info = {
             "data_points": results,
-            "answer": chat_completion.choices[0].message.content,
             "thoughts": f"Question:<br>{query_text}<br><br>Prompt:<br>"
             + "\n\n".join([str(message) for message in messages]),
         }
+        chat_completion.choices[0]["extra_args"] = extra_info
+        return chat_completion
