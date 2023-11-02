@@ -47,6 +47,8 @@ info4.pdf: In-network institutions include Overlake, Swedish and others in the r
         embedding_model: str,
         sourcepage_field: str,
         content_field: str,
+        query_language: str,
+        query_speller: str,
     ):
         self.search_client = search_client
         self.openai_host = openai_host
@@ -56,6 +58,8 @@ info4.pdf: In-network institutions include Overlake, Swedish and others in the r
         self.embedding_deployment = embedding_deployment
         self.sourcepage_field = sourcepage_field
         self.content_field = content_field
+        self.query_language = query_language
+        self.query_speller = query_speller
 
     async def run(
         self,
@@ -90,8 +94,8 @@ info4.pdf: In-network institutions include Overlake, Swedish and others in the r
                 query_text,
                 filter=filter,
                 query_type=QueryType.SEMANTIC,
-                query_language="en-us",
-                query_speller="lexicon",
+                query_language=self.query_language,
+                query_speller=self.query_speller,
                 semantic_configuration_name="default",
                 top=top,
                 query_caption="extractive|highlight-false" if use_semantic_captions else None,
@@ -123,11 +127,11 @@ info4.pdf: In-network institutions include Overlake, Swedish and others in the r
 
         # add user question
         user_content = q + "\n" + f"Sources:\n {content}"
-        message_builder.append_message("user", user_content)
+        message_builder.insert_message("user", user_content)
 
         # Add shots/samples. This helps model to mimic response and make sure they match rules laid out in system message.
-        message_builder.append_message("assistant", self.answer)
-        message_builder.append_message("user", self.question)
+        message_builder.insert_message("assistant", self.answer)
+        message_builder.insert_message("user", self.question)
 
         messages = message_builder.messages
         chatgpt_args = {"deployment_id": self.chatgpt_deployment} if self.openai_host == "azure" else {}
@@ -146,4 +150,5 @@ info4.pdf: In-network institutions include Overlake, Swedish and others in the r
             + "\n\n".join([str(message) for message in messages]),
         }
         chat_completion.choices[0]["context"] = extra_info
+        chat_completion.choices[0]["session_state"] = session_state
         return chat_completion

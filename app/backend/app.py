@@ -9,6 +9,7 @@ from typing import AsyncGenerator
 
 import aiohttp
 import openai
+from azure.core.exceptions import ResourceNotFoundError
 from azure.identity.aio import DefaultAzureCredential
 from azure.monitor.opentelemetry import configure_azure_monitor
 from azure.search.documents.aio import SearchClient
@@ -39,6 +40,10 @@ CONFIG_CHAT_APPROACH = "chat_approach"
 CONFIG_BLOB_CONTAINER_CLIENT = "blob_container_client"
 CONFIG_AUTH_CLIENT = "auth_client"
 CONFIG_SEARCH_CLIENT = "search_client"
+ERROR_MESSAGE = """The app encountered an error processing your request.
+If you are an administrator of the app, view the full error in the logs. See aka.ms/appservice-logs for more information.
+Error type: {error_type}
+"""
 
 bp = Blueprint("routes", __name__, static_folder="static")
 
@@ -69,9 +74,18 @@ async def assets(path):
 # *** NOTE *** this assumes that the content files are public, or at least that all users of the app
 # can access all the files. This is also slow and memory hungry.
 @bp.route("/content/<path>")
-async def content_file(path):
+async def content_file(path: str):
+    # Remove page number from path, filename-1.txt -> filename.txt
+    if path.find("#page=") > 0:
+        path_parts = path.rsplit("#page=", 1)
+        path = path_parts[0]
+    logging.info("Opening file %s at page %s", path)
     blob_container_client = current_app.config[CONFIG_BLOB_CONTAINER_CLIENT]
-    blob = await blob_container_client.get_blob_client(path).download_blob()
+    try:
+        blob = await blob_container_client.get_blob_client(path).download_blob()
+    except ResourceNotFoundError:
+        logging.exception("Path not found: %s", path)
+        abort(404)
     if not blob.properties or not blob.properties.has_key("content_settings"):
         abort(404)
     mime_type = blob.properties["content_settings"]["content_type"]
@@ -81,6 +95,10 @@ async def content_file(path):
     await blob.readinto(blob_file)
     blob_file.seek(0)
     return await send_file(blob_file, mimetype=mime_type, as_attachment=False, attachment_filename=path)
+
+
+def error_dict(error: Exception) -> dict:
+    return {"error": ERROR_MESSAGE.format(error_type=type(error))}
 
 
 @bp.route("/ask", methods=["POST"])
@@ -96,16 +114,22 @@ async def ask():
         # Workaround for: https://github.com/openai/openai-python/issues/371
         async with aiohttp.ClientSession() as s:
             openai.aiosession.set(s)
-            r = await approach.run(request_json["messages"], context=context)
+            r = await approach.run(
+                request_json["messages"], context=context, session_state=request_json.get("session_state")
+            )
         return jsonify(r)
-    except Exception as e:
-        logging.exception("Exception in /ask")
-        return jsonify({"error": str(e)}), 500
+    except Exception as error:
+        logging.exception("Exception in /ask: %s", error)
+        return jsonify(error_dict(error)), 500
 
 
 async def format_as_ndjson(r: AsyncGenerator[dict, None]) -> AsyncGenerator[str, None]:
-    async for event in r:
-        yield json.dumps(event, ensure_ascii=False) + "\n"
+    try:
+        async for event in r:
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+    except Exception as e:
+        logging.exception("Exception while generating response stream: %s", e)
+        yield json.dumps(error_dict(e))
 
 
 @bp.route("/chat", methods=["POST"])
@@ -118,16 +142,21 @@ async def chat():
     context["auth_claims"] = await auth_helper.get_auth_claims_if_enabled(request.headers)
     try:
         approach = current_app.config[CONFIG_CHAT_APPROACH]
-        result = await approach.run(request_json["messages"], stream=request_json.get("stream", False), context=context)
+        result = await approach.run(
+            request_json["messages"],
+            stream=request_json.get("stream", False),
+            context=context,
+            session_state=request_json.get("session_state"),
+        )
         if isinstance(result, dict):
             return jsonify(result)
         else:
             response = await make_response(format_as_ndjson(result))
             response.timeout = None  # type: ignore
             return response
-    except Exception as e:
-        logging.exception("Exception in /chat")
-        return jsonify({"error": str(e)}), 500
+    except Exception as error:
+        logging.exception("Exception in /chat: %s", error)
+        return jsonify(error_dict(error)), 500
 
 
 # Send MSAL.js settings to the client UI
@@ -177,6 +206,9 @@ async def setup_clients():
 
     KB_FIELDS_CONTENT = os.getenv("KB_FIELDS_CONTENT", "content")
     KB_FIELDS_SOURCEPAGE = os.getenv("KB_FIELDS_SOURCEPAGE", "sourcepage")
+
+    AZURE_SEARCH_QUERY_LANGUAGE = os.getenv("AZURE_SEARCH_QUERY_LANGUAGE", "en-us")
+    AZURE_SEARCH_QUERY_SPELLER = os.getenv("AZURE_SEARCH_QUERY_SPELLER", "lexicon")
 
     # Use the current user identity to authenticate with Azure OpenAI, Cognitive Search and Blob Storage (no secrets needed,
     # just use 'az login' locally, and managed identity when deployed on Azure). If you need to use keys, use separate AzureKeyCredential instances with the
@@ -235,6 +267,8 @@ async def setup_clients():
         OPENAI_EMB_MODEL,
         KB_FIELDS_SOURCEPAGE,
         KB_FIELDS_CONTENT,
+        AZURE_SEARCH_QUERY_LANGUAGE,
+        AZURE_SEARCH_QUERY_SPELLER,
     )
 
     current_app.config[CONFIG_CHAT_APPROACH] = ChatReadRetrieveReadApproach(
@@ -246,6 +280,8 @@ async def setup_clients():
         OPENAI_EMB_MODEL,
         KB_FIELDS_SOURCEPAGE,
         KB_FIELDS_CONTENT,
+        AZURE_SEARCH_QUERY_LANGUAGE,
+        AZURE_SEARCH_QUERY_SPELLER,
     )
 
 

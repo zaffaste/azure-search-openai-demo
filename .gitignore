@@ -146,5 +146,7 @@ npm-debug.log*
 node_modules
 static/
 
+data/*.md5
+
 # Visual Studio
 .vs/
