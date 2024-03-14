@@ -1,13 +1,15 @@
 import os
+from abc import ABC
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, List, Optional, Union, cast
+from typing import Any, AsyncGenerator, Awaitable, Callable, List, Optional, Union, cast
+from urllib.parse import urljoin
 
 import aiohttp
 from azure.search.documents.aio import SearchClient
 from azure.search.documents.models import (
-    CaptionResult,
+    QueryCaptionResult,
     QueryType,
-    RawVectorQuery,
+    VectorizedQuery,
     VectorQuery,
 )
 from openai import AsyncOpenAI
@@ -27,7 +29,9 @@ class Document:
     sourcefile: Optional[str]
     oids: Optional[List[str]]
     groups: Optional[List[str]]
-    captions: List[CaptionResult]
+    captions: List[QueryCaptionResult]
+    score: Optional[float] = None
+    reranker_score: Optional[float] = None
 
     def serialize_for_results(self) -> dict[str, Any]:
         return {
@@ -40,16 +44,20 @@ class Document:
             "sourcefile": self.sourcefile,
             "oids": self.oids,
             "groups": self.groups,
-            "captions": [
-                {
-                    "additional_properties": caption.additional_properties,
-                    "text": caption.text,
-                    "highlights": caption.highlights,
-                }
-                for caption in self.captions
-            ]
-            if self.captions
-            else [],
+            "captions": (
+                [
+                    {
+                        "additional_properties": caption.additional_properties,
+                        "text": caption.text,
+                        "highlights": caption.highlights,
+                    }
+                    for caption in self.captions
+                ]
+                if self.captions
+                else []
+            ),
+            "score": self.score,
+            "reranker_score": self.reranker_score,
         }
 
     @classmethod
@@ -72,7 +80,7 @@ class ThoughtStep:
     props: Optional[dict[str, Any]] = None
 
 
-class Approach:
+class Approach(ABC):
     def __init__(
         self,
         search_client: SearchClient,
@@ -83,6 +91,8 @@ class Approach:
         embedding_deployment: Optional[str],  # Not needed for non-Azure OpenAI or for retrieval_mode="text"
         embedding_model: str,
         openai_host: str,
+        vision_endpoint: str,
+        vision_token_provider: Callable[[], Awaitable[str]],
     ):
         self.search_client = search_client
         self.openai_client = openai_client
@@ -92,9 +102,11 @@ class Approach:
         self.embedding_deployment = embedding_deployment
         self.embedding_model = embedding_model
         self.openai_host = openai_host
+        self.vision_endpoint = vision_endpoint
+        self.vision_token_provider = vision_token_provider
 
     def build_filter(self, overrides: dict[str, Any], auth_claims: dict[str, Any]) -> Optional[str]:
-        exclude_category = overrides.get("exclude_category") or None
+        exclude_category = overrides.get("exclude_category")
         security_filter = self.auth_helper.build_security_filters(overrides, auth_claims)
         filters = []
         if exclude_category:
@@ -144,7 +156,9 @@ class Approach:
                         sourcefile=document.get("sourcefile"),
                         oids=document.get("oids"),
                         groups=document.get("groups"),
-                        captions=cast(List[CaptionResult], document.get("@search.captions")),
+                        captions=cast(List[QueryCaptionResult], document.get("@search.captions")),
+                        score=document.get("@search.score"),
+                        reranker_score=document.get("@search.reranker_score"),
                     )
                 )
         return documents
@@ -184,13 +198,15 @@ class Approach:
             input=q,
         )
         query_vector = embedding.data[0].embedding
-        return RawVectorQuery(vector=query_vector, k=50, fields="embedding")
+        return VectorizedQuery(vector=query_vector, k_nearest_neighbors=50, fields="embedding")
 
-    async def compute_image_embedding(self, q: str, vision_endpoint: str, vision_key: str):
-        endpoint = f"{vision_endpoint}computervision/retrieval:vectorizeText"
+    async def compute_image_embedding(self, q: str):
+        endpoint = urljoin(self.vision_endpoint, "computervision/retrieval:vectorizeText")
+        headers = {"Content-Type": "application/json"}
         params = {"api-version": "2023-02-01-preview", "modelVersion": "latest"}
-        headers = {"Content-Type": "application/json", "Ocp-Apim-Subscription-Key": vision_key}
         data = {"text": q}
+
+        headers["Authorization"] = "Bearer " + await self.vision_token_provider()
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -198,7 +214,7 @@ class Approach:
             ) as response:
                 json = await response.json()
                 image_query_vector = json["vector"]
-        return RawVectorQuery(vector=image_query_vector, k=50, fields="imageEmbedding")
+        return VectorizedQuery(vector=image_query_vector, k_nearest_neighbors=50, fields="imageEmbedding")
 
     async def run(
         self, messages: list[dict], stream: bool = False, session_state: Any = None, context: dict[str, Any] = {}

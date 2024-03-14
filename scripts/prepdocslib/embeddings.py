@@ -1,12 +1,13 @@
-import time
+import logging
 from abc import ABC
-from typing import List, Optional, Union
+from typing import Awaitable, Callable, List, Optional, Union
 from urllib.parse import urljoin
 
 import aiohttp
 import tiktoken
-from azure.core.credentials import AccessToken, AzureKeyCredential
+from azure.core.credentials import AzureKeyCredential
 from azure.core.credentials_async import AsyncTokenCredential
+from azure.identity.aio import get_bearer_token_provider
 from openai import AsyncAzureOpenAI, AsyncOpenAI, RateLimitError
 from tenacity import (
     AsyncRetrying,
@@ -14,6 +15,9 @@ from tenacity import (
     stop_after_attempt,
     wait_random_exponential,
 )
+from typing_extensions import TypedDict
+
+logger = logging.getLogger("ingester")
 
 
 class EmbeddingBatch:
@@ -34,17 +38,15 @@ class OpenAIEmbeddings(ABC):
 
     SUPPORTED_BATCH_AOAI_MODEL = {"text-embedding-ada-002": {"token_limit": 8100, "max_batch_size": 16}}
 
-    def __init__(self, open_ai_model_name: str, disable_batch: bool = False, verbose: bool = False):
+    def __init__(self, open_ai_model_name: str, disable_batch: bool = False):
         self.open_ai_model_name = open_ai_model_name
         self.disable_batch = disable_batch
-        self.verbose = verbose
 
     async def create_client(self) -> AsyncOpenAI:
         raise NotImplementedError
 
     def before_retry_sleep(self, retry_state):
-        if self.verbose:
-            print("Rate limited on the OpenAI embeddings API, sleeping before retrying...")
+        logger.info("Rate limited on the OpenAI embeddings API, sleeping before retrying...")
 
     def calculate_token_length(self, text: str):
         encoding = tiktoken.encoding_for_model(self.open_ai_model_name)
@@ -95,8 +97,11 @@ class OpenAIEmbeddings(ABC):
                 with attempt:
                     emb_response = await client.embeddings.create(model=self.open_ai_model_name, input=batch.texts)
                     embeddings.extend([data.embedding for data in emb_response.data])
-                    if self.verbose:
-                        print(f"Batch Completed. Batch size  {len(batch.texts)} Token count {batch.token_length}")
+                    logger.info(
+                        "Computed embeddings in batch. Batch size: %d, Token count: %d",
+                        len(batch.texts),
+                        batch.token_length,
+                    )
 
         return embeddings
 
@@ -110,6 +115,7 @@ class OpenAIEmbeddings(ABC):
         ):
             with attempt:
                 emb_response = await client.embeddings.create(model=self.open_ai_model_name, input=text)
+                logger.info("Computed embedding for text section. Character count: %d", len(text))
 
         return emb_response.data[0].embedding
 
@@ -133,33 +139,33 @@ class AzureOpenAIEmbeddingService(OpenAIEmbeddings):
         open_ai_model_name: str,
         credential: Union[AsyncTokenCredential, AzureKeyCredential],
         disable_batch: bool = False,
-        verbose: bool = False,
     ):
-        super().__init__(open_ai_model_name, disable_batch, verbose)
+        super().__init__(open_ai_model_name, disable_batch)
         self.open_ai_service = open_ai_service
         self.open_ai_deployment = open_ai_deployment
         self.credential = credential
-        self.cached_token: Optional[AccessToken] = None
 
     async def create_client(self) -> AsyncOpenAI:
+        class AuthArgs(TypedDict, total=False):
+            api_key: str
+            azure_ad_token_provider: Callable[[], Union[str, Awaitable[str]]]
+
+        auth_args = AuthArgs()
+        if isinstance(self.credential, AzureKeyCredential):
+            auth_args["api_key"] = self.credential.key
+        elif isinstance(self.credential, AsyncTokenCredential):
+            auth_args["azure_ad_token_provider"] = get_bearer_token_provider(
+                self.credential, "https://cognitiveservices.azure.com/.default"
+            )
+        else:
+            raise TypeError("Invalid credential type")
+
         return AsyncAzureOpenAI(
             azure_endpoint=f"https://{self.open_ai_service}.openai.azure.com",
             azure_deployment=self.open_ai_deployment,
-            api_key=await self.wrap_credential(),
             api_version="2023-05-15",
+            **auth_args,
         )
-
-    async def wrap_credential(self) -> str:
-        if isinstance(self.credential, AzureKeyCredential):
-            return self.credential.key
-
-        if isinstance(self.credential, AsyncTokenCredential):
-            if not self.cached_token or self.cached_token.expires_on <= time.time():
-                self.cached_token = await self.credential.get_token("https://cognitiveservices.azure.com/.default")
-
-            return self.cached_token.token
-
-        raise TypeError("Invalid credential type")
 
 
 class OpenAIEmbeddingService(OpenAIEmbeddings):
@@ -169,14 +175,9 @@ class OpenAIEmbeddingService(OpenAIEmbeddings):
     """
 
     def __init__(
-        self,
-        open_ai_model_name: str,
-        credential: str,
-        organization: Optional[str] = None,
-        disable_batch: bool = False,
-        verbose: bool = False,
+        self, open_ai_model_name: str, credential: str, organization: Optional[str] = None, disable_batch: bool = False
     ):
-        super().__init__(open_ai_model_name, disable_batch, verbose)
+        super().__init__(open_ai_model_name, disable_batch)
         self.credential = credential
         self.organization = organization
 
@@ -190,15 +191,16 @@ class ImageEmbeddings:
     To learn more, please visit https://learn.microsoft.com/azure/ai-services/computer-vision/how-to/image-retrieval#call-the-vectorize-image-api
     """
 
-    def __init__(self, credential: str, endpoint: str, verbose: bool = False):
-        self.credential = credential
+    def __init__(self, endpoint: str, token_provider: Callable[[], Awaitable[str]]):
+        self.token_provider = token_provider
         self.endpoint = endpoint
-        self.verbose = verbose
 
     async def create_embeddings(self, blob_urls: List[str]) -> List[List[float]]:
-        headers = {"Ocp-Apim-Subscription-Key": self.credential}
-        params = {"api-version": "2023-02-01-preview", "modelVersion": "latest"}
         endpoint = urljoin(self.endpoint, "computervision/retrieval:vectorizeImage")
+        headers = {"Content-Type": "application/json"}
+        params = {"api-version": "2023-02-01-preview", "modelVersion": "latest"}
+        headers["Authorization"] = "Bearer " + await self.token_provider()
+
         embeddings: List[List[float]] = []
         async with aiohttp.ClientSession(headers=headers) as session:
             for blob_url in blob_urls:
@@ -217,5 +219,4 @@ class ImageEmbeddings:
         return embeddings
 
     def before_retry_sleep(self, retry_state):
-        if self.verbose:
-            print("Rate limited on the Vision embeddings API, sleeping before retrying...")
+        logger.info("Rate limited on the Vision embeddings API, sleeping before retrying...")
