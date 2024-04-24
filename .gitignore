@@ -150,3 +150,5 @@ data/**/*.md5
 
 # Visual Studio
 .vs/
+
+.DS_Store
