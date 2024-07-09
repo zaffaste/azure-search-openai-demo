@@ -32,6 +32,8 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
         blob_container_client: ContainerClient,
         openai_client: AsyncOpenAI,
         auth_helper: AuthenticationHelper,
+        chatgpt_model: str,
+        chatgpt_deployment: Optional[str],  # Not needed for non-Azure OpenAI
         gpt4v_deployment: Optional[str],  # Not needed for non-Azure OpenAI
         gpt4v_model: str,
         embedding_deployment: Optional[str],  # Not needed for non-Azure OpenAI or for retrieval_mode="text"
@@ -48,6 +50,8 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
         self.blob_container_client = blob_container_client
         self.openai_client = openai_client
         self.auth_helper = auth_helper
+        self.chatgpt_model = chatgpt_model
+        self.chatgpt_deployment = chatgpt_deployment
         self.gpt4v_deployment = gpt4v_deployment
         self.gpt4v_model = gpt4v_model
         self.embedding_deployment = embedding_deployment
@@ -85,18 +89,18 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
         auth_claims: dict[str, Any],
         should_stream: bool = False,
     ) -> tuple[dict[str, Any], Coroutine[Any, Any, Union[ChatCompletion, AsyncStream[ChatCompletionChunk]]]]:
-        has_text = overrides.get("retrieval_mode") in ["text", "hybrid", None]
-        has_vector = overrides.get("retrieval_mode") in ["vectors", "hybrid", None]
-        vector_fields = overrides.get("vector_fields", ["embedding"])
-        use_semantic_captions = True if overrides.get("semantic_captions") and has_text else False
+        use_text_search = overrides.get("retrieval_mode") in ["text", "hybrid", None]
+        use_vector_search = overrides.get("retrieval_mode") in ["vectors", "hybrid", None]
+        use_semantic_ranker = True if overrides.get("semantic_ranker") else False
+        use_semantic_captions = True if overrides.get("semantic_captions") else False
         top = overrides.get("top", 3)
         minimum_search_score = overrides.get("minimum_search_score", 0.0)
         minimum_reranker_score = overrides.get("minimum_reranker_score", 0.0)
         filter = self.build_filter(overrides, auth_claims)
-        use_semantic_ranker = True if overrides.get("semantic_ranker") and has_text else False
 
-        include_gtpV_text = overrides.get("gpt4v_input") in ["textAndImages", "texts", None]
-        include_gtpV_images = overrides.get("gpt4v_input") in ["textAndImages", "images", None]
+        vector_fields = overrides.get("vector_fields", ["embedding"])
+        send_text_to_gptvision = overrides.get("gpt4v_input") in ["textAndImages", "texts", None]
+        send_images_to_gptvision = overrides.get("gpt4v_input") in ["textAndImages", "images", None]
 
         original_user_query = messages[-1]["content"]
         if not isinstance(original_user_query, str):
@@ -107,8 +111,10 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
         user_query_request = "Generate search query for: " + original_user_query
 
         query_response_token_limit = 100
+        query_model = self.chatgpt_model
+        query_deployment = self.chatgpt_deployment
         query_messages = build_messages(
-            model=self.gpt4v_model,
+            model=query_model,
             system_prompt=self.query_prompt_template,
             few_shots=self.query_prompt_few_shots,
             past_messages=past_messages,
@@ -117,7 +123,7 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
         )
 
         chat_completion: ChatCompletion = await self.openai_client.chat.completions.create(
-            model=self.gpt4v_deployment if self.gpt4v_deployment else self.gpt4v_model,
+            model=query_deployment if query_deployment else query_model,
             messages=query_messages,
             temperature=0.0,  # Minimize creativity for search query generation
             max_tokens=query_response_token_limit,
@@ -130,7 +136,7 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
 
         # If retrieval mode includes vectors, compute an embedding for the query
         vectors = []
-        if has_vector:
+        if use_vector_search:
             for field in vector_fields:
                 vector = (
                     await self.compute_text_embedding(query_text)
@@ -139,15 +145,13 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
                 )
                 vectors.append(vector)
 
-        # Only keep the text query if the retrieval mode uses text, otherwise drop it
-        if not has_text:
-            query_text = None
-
         results = await self.search(
             top,
             query_text,
             filter,
             vectors,
+            use_text_search,
+            use_vector_search,
             use_semantic_ranker,
             use_semantic_captions,
             minimum_search_score,
@@ -167,9 +171,9 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
         user_content: list[ChatCompletionContentPartParam] = [{"text": original_user_query, "type": "text"}]
         image_list: list[ChatCompletionContentPartImageParam] = []
 
-        if include_gtpV_text:
+        if send_text_to_gptvision:
             user_content.append({"text": "\n\nSources:\n" + content, "type": "text"})
-        if include_gtpV_images:
+        if send_images_to_gptvision:
             for result in results:
                 url = await fetch_image(self.blob_container_client, result)
                 if url:
@@ -197,9 +201,9 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
                     "Prompt to generate search query",
                     [str(message) for message in query_messages],
                     (
-                        {"model": self.gpt4v_model, "deployment": self.gpt4v_deployment}
-                        if self.gpt4v_deployment
-                        else {"model": self.gpt4v_model}
+                        {"model": query_model, "deployment": query_deployment}
+                        if query_deployment
+                        else {"model": query_model}
                     ),
                 ),
                 ThoughtStep(
@@ -211,6 +215,7 @@ class ChatReadRetrieveReadVisionApproach(ChatApproach):
                         "top": top,
                         "filter": filter,
                         "vector_fields": vector_fields,
+                        "use_text_search": use_text_search,
                     },
                 ),
                 ThoughtStep(

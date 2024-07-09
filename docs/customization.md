@@ -5,7 +5,6 @@ This guide provides more details for customizing the Chat App.
 - [Using your own data](#using-your-own-data)
 - [Customizing the UI](#customizing-the-ui)
 - [Customizing the backend](#customizing-the-backend)
-  - [Chat/Ask approaches](#chatask-approaches)
 - [Improving answer quality](#improving-answer-quality)
   - [Identify the problem point](#identify-the-problem-point)
   - [Improving OpenAI ChatCompletion results](#improving-openai-chatcompletion-results)
@@ -27,7 +26,7 @@ The frontend is built using [React](https://reactjs.org/) and [Fluent UI compone
 
 ## Customizing the backend
 
-The backend is built using [Quart](https://quart.palletsprojects.com/), a Python framework for asynchronous web applications. The backend code is stored in the `app/backend` folder. The frontend and backend communicate using the [AI Chat App HTTP Protocol](https://github.com/Azure-Samples/ai-chat-app-protocol).
+The backend is built using [Quart](https://quart.palletsprojects.com/), a Python framework for asynchronous web applications. The backend code is stored in the `app/backend` folder. The frontend and backend communicate using the [AI Chat HTTP Protocol](https://aka.ms/chatprotocol).
 
 ### Chat/Ask tabs
 
@@ -45,7 +44,7 @@ The `system_message_chat_conversation` variable is currently tailored to the sam
 
 ##### Chat with vision
 
-If you followed the instructions in [docs/gpt4v.md](gpt4v.md) to enable the GPT-4 Vision model and then select "Use GPT-4 Turbo with Vision", then the chat tab will use the `chatreadretrievereadvision.py` approach instead. This approach is similar to the `chatreadretrieveread.py` approach, with a few differences:
+If you followed the instructions in [docs/gpt4v.md](gpt4v.md) to enable a GPT Vision model and then select "Use GPT vision model", then the chat tab will use the `chatreadretrievereadvision.py` approach instead. This approach is similar to the `chatreadretrieveread.py` approach, with a few differences:
 
 1. Step 1 is the same as before, except it uses the GPT-4 Vision model instead of the default GPT-3.5 model.
 2. For this step, it also calculates a vector embedding for the user question using [the Computer Vision vectorize text API](https://learn.microsoft.com/azure/ai-services/computer-vision/how-to/image-retrieval#call-the-vectorize-text-api), and passes that to the Azure AI Search to compare against the `imageEmbeddings` fields in the indexed documents. For each matching document, it downloads the image blob and converts it to a base 64 encoding.
@@ -62,7 +61,7 @@ The `system_chat_template` variable is currently tailored to the sample data sin
 
 #### Read with vision
 
-If you followed the instructions in [docs/gpt4v.md](gpt4v.md) to enable the GPT-4 Vision model and then select "Use GPT-4 Turbo with Vision", then the ask tab will use the `retrievethenreadvision.py` approach instead. This approach is similar to the `retrievethenread.py` approach, with a few differences:
+If you followed the instructions in [docs/gpt4v.md](gpt4v.md) to enable the GPT-4 Vision model and then select "Use GPT vision model", then the ask tab will use the `retrievethenreadvision.py` approach instead. This approach is similar to the `retrievethenread.py` approach, with a few differences:
 
 1. For this step, it also calculates a vector embedding for the user question using [the Computer Vision vectorize text API](https://learn.microsoft.com/azure/ai-services/computer-vision/how-to/image-retrieval#call-the-vectorize-text-api), and passes that to the Azure AI Search to compare against the `imageEmbeddings` fields in the indexed documents. For each matching document, it downloads the image blob and converts it to a base 64 encoding.
 2. When it combines the search results and user question, it includes the base 64 encoded images, and sends along both the text and images to the GPT4 Vision model (similar to this [documentation example](https://platform.openai.com/docs/guides/vision/quick-start)). The model generates a response that includes citations to the images, and the UI renders the base64 encoded images when a citation is clicked.
@@ -77,24 +76,24 @@ However, if you find a setting that you do want to make permanent, there are two
 
 1. Change the defaults in the frontend. You'll find the defaults in `Chat.tsx` and `Ask.tsx`. For example, this line of code sets the default retrieval mode to Hybrid:
 
-```typescript
-const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>(RetrievalMode.Hybrid);
-```
+    ```typescript
+    const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>(RetrievalMode.Hybrid);
+    ```
 
-You can change the default to Text by changing the code to:
+    You can change the default to Text by changing the code to:
 
-```typescript
-const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>(RetrievalMode.Text);
-```
+    ```typescript
+    const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>(RetrievalMode.Text);
+    ```
 
 2. Change the overrides in the backend. Each of the approaches has a `run` method that takes a `context` parameter, and the first line of code extracts the overrides from that `context`. That's where you can override any of the settings. For example, to change the retrieval mode to text:
 
-```python
-overrides = context.get("overrides", {})
-overrides["retrieval_mode"] = "text"
-```
+    ```python
+    overrides = context.get("overrides", {})
+    overrides["retrieval_mode"] = "text"
+    ```
 
-By changing the setting on the backend, you can safely remove the Developer Settings UI from the frontend, if you don't wish to expose that to your users.
+    By changing the setting on the backend, you can safely remove the Developer Settings UI from the frontend, if you don't wish to expose that to your users.
 
 ## Improving answer quality
 
@@ -125,7 +124,7 @@ You can also try changing the ChatCompletion parameters, like temperature, to se
 
 If the problem is with Azure AI Search (step 2 above), the first step is to check what search parameters you're using. Generally, the best results are found with hybrid search (text + vectors) plus the additional semantic re-ranking step, and that's what we've enabled by default. There may be some domains where that combination isn't optimal, however.
 
-##### Configuring parameters in the app
+#### Configuring parameters in the app
 
 You can change many of the search parameters in the "Developer settings" in the frontend and see if results improve for your queries. The most relevant options:
 
@@ -162,7 +161,6 @@ You can also use the `highlight` parameter to see what text is being matched in 
 ![Screenshot of search explorer with highlighted results](images/screenshot_searchindex.png)
 
 The search explorer works well for testing text, but is harder to use with vectors, since you'd also need to compute the vector embedding and send it in. It is probably easier to use the app frontend for testing vectors/hybrid search.
-
 
 ### Evaluating answer quality
 
