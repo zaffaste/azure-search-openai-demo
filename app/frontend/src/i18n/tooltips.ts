@@ -8,7 +8,7 @@ export const toolTipText = {
     searchScore:
         "Sets a minimum score for search results coming back from Azure AI search. The score range depends on whether you're using hybrid (default), vectors only, or text only.",
     rerankerScore:
-        "Sets a minimum score for search results coming back from the semantic reranker. The score always ranges between 1-4. The higher the score, the more semantically relevant the result is to the question.",
+        "Sets a minimum score for search results coming back from the semantic reranker. The score always ranges between 0-4. The higher the score, the more semantically relevant the result is to the question.",
     retrieveNumber:
         "Sets the number of search results to retrieve from Azure AI search. More results may increase the likelihood of finding the correct answer, but may lead to the model getting 'lost in the middle'.",
     excludeCategory: "Specifies a category to exclude from the search results. There are no categories used in the default data set.",
@@ -20,7 +20,7 @@ export const toolTipText = {
     vectorFields:
         "Specifies which embedding fields in the Azure AI Search Index will be searched, both the 'Images and text' embeddings, 'Images' only, or 'Text' only.",
     gpt4VisionInputs:
-        "Sets what will be send to the vision model. 'Images and text' sends both images and text to the model, 'Images' sends only images, and 'Text' sends only text.",
+        "Sets what will be sent to the vision model. 'Images and text' sends both images and text to the model, 'Images' sends only images, and 'Text' sends only text.",
     retrievalMode:
         "Sets the retrieval mode for the Azure AI Search query. `Vectors + Text (Hybrid)` uses a combination of vector search and full text search, `Vectors` uses only vector search, and `Text` uses only full text search. Hybrid is generally optimal.",
     streamChat: "Continuously streams the response to the chat UI as it is generated.",
