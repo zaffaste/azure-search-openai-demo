@@ -52,6 +52,7 @@ param authenticationIssuerUri string = ''
 @allowed([ 'Enabled', 'Disabled' ])
 param publicNetworkAccess string = 'Enabled'
 param enableUnauthenticatedAccess bool = false
+param disableAppServicesAuthentication bool = false
 
 var msftAllowedOrigins = [ 'https://portal.azure.com', 'https://ms.portal.azure.com' ]
 var loginEndpoint = environment().authentication.loginEndpoint
@@ -140,7 +141,7 @@ resource appService 'Microsoft.Web/sites@2022-03-01' = {
     }
   }
 
-  resource configAuth 'config' = if (!(empty(clientAppId))) {
+  resource configAuth 'config' = if (!(empty(clientAppId)) && !disableAppServicesAuthentication) {
     name: 'authsettingsV2'
     properties: {
       globalValidation: {

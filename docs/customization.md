@@ -17,12 +17,7 @@ The Chat App is designed to work with any PDF documents. The sample data is prov
 
 ## Customizing the UI
 
-The frontend is built using [React](https://reactjs.org/) and [Fluent UI components](https://react.fluentui.dev/). The frontend components are stored in the `app/frontend/src` folder. The typical components you'll want to customize are:
-
-- `app/frontend/index.html`: To change the page title
-- `app/frontend/src/pages/layout/Layout.tsx`: To change the header text and logo
-- `app/frontend/src/pages/chat/Chat.tsx`: To change the large heading
-- `app/frontend/src/components/Example/ExampleList.tsx`: To change the example questions
+The frontend is built using [React](https://reactjs.org/) and [Fluent UI components](https://react.fluentui.dev/). The frontend components are stored in the `app/frontend/src` folder. To modify the page title, header text, example questions, and other UI elements, you can customize the `app/frontend/src/locales/{en/es/fr/jp}/translation.json` file for different languages(English is the default). The primary strings and labels used throughout the application are defined within these files.
 
 ## Customizing the backend
 
@@ -122,7 +117,7 @@ You can also try changing the ChatCompletion parameters, like temperature, to se
 
 ### Improving Azure AI Search results
 
-If the problem is with Azure AI Search (step 2 above), the first step is to check what search parameters you're using. Generally, the best results are found with hybrid search (text + vectors) plus the additional semantic re-ranking step, and that's what we've enabled by default. There may be some domains where that combination isn't optimal, however.
+If the problem is with Azure AI Search (step 2 above), the first step is to check what search parameters you're using. Generally, the best results are found with hybrid search (text + vectors) plus the additional semantic re-ranking step, and that's what we've enabled by default. There may be some domains where that combination isn't optimal, however. Check out this blog post which [evaluates AI search strategies](https://techcommunity.microsoft.com/t5/ai-azure-ai-services-blog/azure-ai-search-outperforming-vector-search-with-hybrid/ba-p/3929167) for a better understanding of the differences.
 
 #### Configuring parameters in the app
 
@@ -161,6 +156,15 @@ You can also use the `highlight` parameter to see what text is being matched in 
 ![Screenshot of search explorer with highlighted results](images/screenshot_searchindex.png)
 
 The search explorer works well for testing text, but is harder to use with vectors, since you'd also need to compute the vector embedding and send it in. It is probably easier to use the app frontend for testing vectors/hybrid search.
+
+#### Other approaches to improve search results
+
+Here are additional ways for improving the search results:
+
+- Adding additional metadata to the "content" field, like the document title, so that it can be matched in the search results. Modify [searchmanager.py](https://github.com/Azure-Samples/azure-search-openai-demo/blob/main/app/backend/prepdocslib/searchmanager.py) to include more text in the `content` field.
+- Making additional fields searchable by the full text search step. For example, the "sourcepage" field is not currently searchable, but you could make that into a `SearchableField` with `searchable=True` in [searchmanager.py](https://github.com/Azure-Samples/azure-search-openai-demo/blob/main/app/backend/prepdocslib/searchmanager.py). A change like that requires [re-building the index](https://learn.microsoft.com/azure/search/search-howto-reindex#change-an-index-schema).
+- Using function calling to search by particular fields, like searching by the filename. See this blog post on [function calling for structured retrieval](https://blog.pamelafox.org/2024/03/rag-techniques-using-function-calling.html).
+- Using a different splitting strategy for the documents, or modifying the existing ones, to improve the chunks that are indexed. You can find the currently available splitters in [textsplitter.py](https://github.com/Azure-Samples/azure-search-openai-demo/blob/main/app/backend/prepdocslib/textsplitter.py).
 
 ### Evaluating answer quality
 

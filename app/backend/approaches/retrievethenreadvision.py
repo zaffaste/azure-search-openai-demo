@@ -28,7 +28,6 @@ class RetrieveThenReadVisionApproach(Approach):
         + "Each text source starts in a new line and has the file name followed by colon and the actual information "
         + "Always include the source name from the image or text for each fact you use in the response in the format: [filename] "
         + "Answer the following question using only the data provided in the sources below. "
-        + "For tabular information return it as an html table. Do not return markdown format. "
         + "The text and image source can be the same file name, don't use the image title when citing the image source, only use the file name as mentioned "
         + "If you cannot answer using the sources below, say you don't know. Return just the answer without any input texts "
     )
@@ -67,7 +66,7 @@ class RetrieveThenReadVisionApproach(Approach):
         self.query_speller = query_speller
         self.vision_endpoint = vision_endpoint
         self.vision_token_provider = vision_token_provider
-        self.gpt4v_token_limit = get_token_limit(gpt4v_model)
+        self.gpt4v_token_limit = get_token_limit(gpt4v_model, self.ALLOW_NON_GPT_MODELS)
 
     async def run(
         self,
@@ -80,6 +79,7 @@ class RetrieveThenReadVisionApproach(Approach):
             raise ValueError("The most recent message content must be a string.")
 
         overrides = context.get("overrides", {})
+        seed = overrides.get("seed", None)
         auth_claims = context.get("auth_claims", {})
         use_text_search = overrides.get("retrieval_mode") in ["text", "hybrid", None]
         use_vector_search = overrides.get("retrieval_mode") in ["vectors", "hybrid", None]
@@ -140,16 +140,16 @@ class RetrieveThenReadVisionApproach(Approach):
             system_prompt=overrides.get("prompt_template", self.system_chat_template_gpt4v),
             new_user_content=user_content,
             max_tokens=self.gpt4v_token_limit - response_token_limit,
+            fallback_to_default=self.ALLOW_NON_GPT_MODELS,
         )
-        chat_completion = (
-            await self.openai_client.chat.completions.create(
-                model=self.gpt4v_deployment if self.gpt4v_deployment else self.gpt4v_model,
-                messages=updated_messages,
-                temperature=overrides.get("temperature", 0.3),
-                max_tokens=response_token_limit,
-                n=1,
-            )
-        ).model_dump()
+        chat_completion = await self.openai_client.chat.completions.create(
+            model=self.gpt4v_deployment if self.gpt4v_deployment else self.gpt4v_model,
+            messages=updated_messages,
+            temperature=overrides.get("temperature", 0.3),
+            max_tokens=response_token_limit,
+            n=1,
+            seed=seed,
+        )
 
         data_points = {
             "text": sources_content,
@@ -178,7 +178,7 @@ class RetrieveThenReadVisionApproach(Approach):
                 ),
                 ThoughtStep(
                     "Prompt to generate answer",
-                    [str(message) for message in updated_messages],
+                    updated_messages,
                     (
                         {"model": self.gpt4v_model, "deployment": self.gpt4v_deployment}
                         if self.gpt4v_deployment
@@ -188,8 +188,11 @@ class RetrieveThenReadVisionApproach(Approach):
             ],
         }
 
-        completion = {}
-        completion["message"] = chat_completion["choices"][0]["message"]
-        completion["context"] = extra_info
-        completion["session_state"] = session_state
-        return completion
+        return {
+            "message": {
+                "content": chat_completion.choices[0].message.content,
+                "role": chat_completion.choices[0].message.role,
+            },
+            "context": extra_info,
+            "session_state": session_state,
+        }
