@@ -66,6 +66,7 @@ param useGPT4V bool = false
   'eastus2'
   'francecentral'
   'switzerlandnorth'
+  'westeurope'
   'uksouth'
   'japaneast'
   'northcentralus'
