@@ -66,7 +66,6 @@ param useGPT4V bool = false
   'eastus2'
   'francecentral'
   'switzerlandnorth'
-  'westeurope'
   'uksouth'
   'japaneast'
   'northcentralus'
@@ -92,7 +91,7 @@ param documentIntelligenceResourceGroupName string = '' // Set in main.parameter
 // Limited regions for new version:
 // https://learn.microsoft.com/azure/ai-services/document-intelligence/concept-layout
 @description('Location for the Document Intelligence resource group')
-@allowed(['eastus', 'westus2', 'westeurope'])
+@allowed(['eastus', 'swedencentral'])
 @metadata({
   azd: {
     type: 'location'
@@ -116,11 +115,11 @@ param chatGptDeploymentCapacity int = 0
 var chatGpt = {
   modelName: !empty(chatGptModelName)
     ? chatGptModelName
-    : startsWith(openAiHost, 'azure') ? 'gpt-35-turbo' : 'gpt-3.5-turbo'
+    : startsWith(openAiHost, 'azure') ? 'gpt-4o-mini' : 'gpt-4o-mini'
   deploymentName: !empty(chatGptDeploymentName) ? chatGptDeploymentName : 'chat'
-  deploymentVersion: !empty(chatGptDeploymentVersion) ? chatGptDeploymentVersion : '0613'
-  deploymentSkuName: !empty(chatGptDeploymentSkuName) ? chatGptDeploymentSkuName : 'Standard'
-  deploymentCapacity: chatGptDeploymentCapacity != 0 ? chatGptDeploymentCapacity : 30
+  deploymentVersion: !empty(chatGptDeploymentVersion) ? chatGptDeploymentVersion : '2024-07-18'
+  deploymentSkuName: !empty(chatGptDeploymentSkuName) ? chatGptDeploymentSkuName : 'GlobalStandard'
+  deploymentCapacity: chatGptDeploymentCapacity != 0 ? chatGptDeploymentCapacity : 1000
 }
 
 param embeddingModelName string = ''
